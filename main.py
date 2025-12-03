@@ -1,25 +1,53 @@
+from langchain_anthropic import ChatAnthropic
 from langchain.agents import create_agent
 from langchain.tools import tool
 from langchain.agents.middleware import wrap_tool_call
 from langchain.messages import ToolMessage
-#from langchain_openai import ChatOpenAI
-from langchain_anthropic import ChatAnthropic
-import requests
-from requests.auth import HTTPBasicAuth
-from datetime import datetime, timedelta
+from tools.trelloTool import get_trello_tasks_due_soon
+from tools.jiraTool import get_jira_tasks_due_soon
+from agent_wrapper import AgentWrapper
 import os
 
-# --- Initialize LangChain Agent ---
-#model = ChatOpenAI(
-# ANTHROPIC_API_KEY must be loaded into env variables
-model = ChatAnthropic(
-    api_key=os.environ['ANTHROPIC_API_KEY'],
-    model="claude-haiku-4-5-20251001",
-    temperature=0.1,
-    max_tokens=1000,
-    timeout=30
-)
+def main():
+    agent_wrapper = AgentWrapper(initialize_agent())
+    
+    response = agent_wrapper.invoke_agent("Please summarize all of my tasks due in the next 48 hours from Jira only.")
+    with open('agent_response.txt', 'w') as file:
+        file.write("Agent Response:" + response)
+    
+    #print("Agent Response:")
+    #print(response)
 
+def lambda_handler(event, context):
+    agent_wrapper = AgentWrapper(initialize_agent())
+    
+    response = agent_wrapper.invoke_agent("Please summarize all of my tasks due in the next 48 hours from Jira only.")
+    return {
+        "statusCode": 200,
+        "body": response
+    }
+
+def initialize_agent():
+    # ANTHROPIC_API_KEY must be loaded into env variables
+    model = ChatAnthropic(
+        api_key=os.environ['ANTHROPIC_API_KEY'],
+        model="claude-haiku-4-5-20251001",
+        temperature=0.1,
+        max_tokens=1000,
+        timeout=30
+    )
+
+    tools = [trello_search, jira_search]
+    system_prompt="You are a helpful assistant. Always begin responses with a greeting. Always end responses with a recommendation for what tasks to work on first."               # FIXME
+    
+    agent = create_agent(
+                        model, 
+                        tools=tools, 
+                        middleware=[handle_tool_errors],
+                        system_prompt=system_prompt
+    )
+    return agent
+    
 # --- LangChain Tools ---
 @tool("TrelloTasksDueSoon", description="Fetch Trello tasks due in the next 48 hours")
 def trello_search() -> str:
@@ -42,50 +70,5 @@ def handle_tool_errors(request, handler):
             tool_call_id=request.tool_call["id"]
         )
 
-tools = [trello_search, jira_search]
-system_prompt="You are a helpful assistant. Always begin responses with a greeting. Always end responses with a recommendation for what tasks to work on first."               # FIXME
-agent = create_agent(
-                     model, 
-                     tools=tools, 
-                     middleware=[handle_tool_errors],   
-                     #agent="zero-shot-react-description",
-                     system_prompt=system_prompt
-                     #verbose=True
-)
-
-# --- Trello Tool Task ---
-def get_trello_tasks_due_soon(api_key, token):
-    url = f"https://api.trello.com/1/members/me/cards?key={api_key}&token={token}"
-    cards = requests.get(url).json()
-    cutoff = datetime.utcnow() + timedelta(hours=48)
-    due_tasks = [c for c in cards if 'due' in c and c['due'] and datetime.fromisoformat(c['due'].replace('Z','')) <= cutoff]
-    return "\n".join([c['name'] for c in due_tasks])
-
-# --- Jira Tool Task ---
-def get_jira_tasks_due_soon(base_url, email, api_token):
-    cutoff_date = (datetime.now(datetime.timezone.utc) + timedelta(hours=48)).strftime('%Y-%m-%d')
-    jql = f"assignee = currentUser() AND (due <= {cutoff_date} OR due is EMPTY) ORDER BY due ASC"
-    url = f"{base_url}/rest/api/3/search"
-    headers = {"Accept": "application/json"}
-    response = requests.get(url, headers=headers, auth=HTTPBasicAuth(email, api_token), params={"jql": jql})
-    issues = response.json()['issues']
-    return "\n".join([i['fields']['summary'] for i in issues])
-
-def invokeAgent():
-    prompt = "Please summarize all of my tasks due in the next 48 hours from Jira only." #"Please summarize all of my tasks due in the next 48 hours from Trello and Jira."
-    response = agent.invoke({"input": prompt})
-    return response["output"]
-
-#def __main__():
-response = invokeAgent()
-with open('agent_response.txt', 'w') as file:
-    file.write("Agent Response:" + response)
-    #print("Agent Response:")
-    #print(response)
-
-def lambda_handler(event, context):
-    response=invokeAgent()
-    return {
-        "statusCode": 200,
-        "body": response
-    }
+if __name__ == "__main__":
+    main()
