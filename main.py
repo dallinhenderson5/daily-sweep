@@ -1,3 +1,5 @@
+from urllib import response
+import json
 from langchain_anthropic import ChatAnthropic
 from langchain.agents import create_agent
 from langchain.tools import tool
@@ -12,11 +14,22 @@ def main():
     agent_wrapper = AgentWrapper(initialize_agent())
     
     response = agent_wrapper.invoke_agent("Please summarize all of my tasks due in the next 48 hours from Jira only.")
-    with open('agent_response.txt', 'w') as file:
-        file.write("Agent Response:" + response)
     
-    #print("Agent Response:")
-    #print(response)
+    # Convert response to JSON-serializable format
+    response_data = []
+    for msg in response:
+        response_data.append({
+            "type": type(msg).__name__,
+            "content": msg.content
+        })
+    
+    # Serialize to JSON string
+    response_json = json.dumps(response_data, indent=2)
+    
+    # Write to file and print
+    with open('agent_response.txt', 'w') as file:
+        file.write(response_json)
+    print(response_json)
 
 def lambda_handler(event, context):
     agent_wrapper = AgentWrapper(initialize_agent())

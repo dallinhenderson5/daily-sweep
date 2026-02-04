@@ -9,7 +9,7 @@ class IAgentWrapper(ABC):
         pass
     
     @abstractmethod
-    def invoke_agent(self, prompt: str) -> str:
+    def invoke_agent(self, prompt: str) -> object:
         """Invoke the agent with a given prompt."""
         pass
 
@@ -17,16 +17,16 @@ class IAgentWrapper(ABC):
 class AgentWrapper(IAgentWrapper):
     """Concrete implementation of IAgentWrapper."""
     
-    def __init__(self):
+    def __init__(self, agent):
         """Initialize with an agent object."""
-        self.agent = self.initialize_agent()
+        self.agent = agent
     
     def get_agent(self):
         """Get the wrapped agent object."""
         return self.agent
     
-    def invoke_agent(self, prompt: str) -> str:
+    def invoke_agent(self, prompt: str) -> object:
         """Invoke the agent with a given prompt."""
-        response = self.agent.invoke({"input": prompt})
-        return response["output"]
+        response = self.agent.invoke({"messages": prompt})
+        return response["messages"]
     
